@@ -21,7 +21,6 @@ import com.vaadin.flow.theme.lumo.LumoUtility.Width;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.vaadin.lineawesome.LineAwesomeIconUrl;
-import reactor.core.publisher.Flux;
 
 import java.time.Instant;
 import java.util.ArrayList;

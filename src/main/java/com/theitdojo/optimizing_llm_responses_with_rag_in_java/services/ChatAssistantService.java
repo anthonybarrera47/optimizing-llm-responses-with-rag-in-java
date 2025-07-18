@@ -7,6 +7,9 @@ import java.util.stream.Stream;
 
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
+import org.springframework.ai.template.st.StTemplateRenderer;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
 import reactor.core.publisher.Flux;
 
 import org.springframework.ai.chat.client.ChatClient;
@@ -25,15 +28,31 @@ public class ChatAssistantService implements ChatAssistant {
     private final PromptTemplate promptTemplate;
 
 
-    public ChatAssistantService(ChatClient.Builder builder,@Value("classpath:/system-prompt.md") Resource systemPrompt,
+    public ChatAssistantService(ChatClient.Builder builder,
+                                @Value("classpath:/system-prompt.md") Resource systemPrompt,
                                 ChatMemory chatMemory,
                                 @Value("classpath:/simv/glosario.txt") Resource glossaryResource,
-                                @Value("classpath:/rag-prompt-template.st") Resource ragPromptTemplate) throws IOException {
-        this.chatMemory = chatMemory;
+                                @Value("classpath:/rag-prompt-template.st") Resource ragPromptTemplate,
+                                VectorStore vectorStore) throws IOException {
+
+        PromptTemplate qaTemplate = PromptTemplate.builder()
+                .renderer(StTemplateRenderer.builder().startDelimiterToken('<').endDelimiterToken('>').build())
+                .resource(ragPromptTemplate)
+                .build();
+
+        QuestionAnswerAdvisor qaAdvisor = QuestionAnswerAdvisor.builder(vectorStore)
+                .promptTemplate(qaTemplate)
+                .searchRequest(SearchRequest.builder().similarityThreshold(0.7f).topK(4).build())
+                .build();
+
         this.chatClient = builder
                 .defaultSystem(systemPrompt)
-                .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
+                .defaultAdvisors(
+                        MessageChatMemoryAdvisor.builder(chatMemory).build(),
+                        qaAdvisor
+                )
                 .build();
+
         this.promptTemplate = new PromptTemplate(ragPromptTemplate);
         this.glossaryContext = glossaryResource.getContentAsString(StandardCharsets.UTF_8);
     }
