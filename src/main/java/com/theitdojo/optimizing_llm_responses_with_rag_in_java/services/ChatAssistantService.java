@@ -5,8 +5,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
+import org.springframework.ai.template.st.StTemplateRenderer;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
 import reactor.core.publisher.Flux;
 
 import org.springframework.ai.chat.client.ChatClient;
@@ -20,20 +24,35 @@ import org.springframework.ai.chat.memory.ChatMemory;
 public class ChatAssistantService implements ChatAssistant {
 
     private final ChatClient chatClient;
-    private final ChatMemory chatMemory;
     private final String glossaryContext;
     private final PromptTemplate promptTemplate;
 
 
-    public ChatAssistantService(ChatClient.Builder builder,@Value("classpath:/system-prompt.md") Resource systemPrompt,
+    public ChatAssistantService(ChatClient.Builder builder,
+                                @Value("classpath:/system-prompt.md") Resource systemPrompt,
                                 ChatMemory chatMemory,
                                 @Value("classpath:/simv/glosario.txt") Resource glossaryResource,
-                                @Value("classpath:/rag-prompt-template.st") Resource ragPromptTemplate) throws IOException {
-        this.chatMemory = chatMemory;
+                                @Value("classpath:/rag-prompt-template.st") Resource ragPromptTemplate,
+                                VectorStore vectorStore) throws IOException {
+
+        PromptTemplate qaTemplate = PromptTemplate.builder()
+                .renderer(StTemplateRenderer.builder().startDelimiterToken('<').endDelimiterToken('>').build())
+                .resource(ragPromptTemplate)
+                .build();
+
+        QuestionAnswerAdvisor qaAdvisor = QuestionAnswerAdvisor.builder(vectorStore)
+                .promptTemplate(qaTemplate)
+                .searchRequest(SearchRequest.builder().similarityThreshold(0.7f).topK(4).build())
+                .build();
+
         this.chatClient = builder
                 .defaultSystem(systemPrompt)
-                .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
+                .defaultAdvisors(
+                        MessageChatMemoryAdvisor.builder(chatMemory).build(),
+                        qaAdvisor
+                )
                 .build();
+
         this.promptTemplate = new PromptTemplate(ragPromptTemplate);
         this.glossaryContext = glossaryResource.getContentAsString(StandardCharsets.UTF_8);
     }
@@ -59,11 +78,7 @@ public class ChatAssistantService implements ChatAssistant {
 
     @Override
     public Flux<String> askQuestionWithContext(String conversationId, String question) {
-        // TODO: Implementar la lógica de RAG en un futuro ejercicio.
-        // Cambiamos a Flux para soportar el streaming reactivo hacia la UI de Vaadin.
-        Prompt prompt = this.promptTemplate.create(Map.of("context", this.glossaryContext, "question", question));
-
-        return chatClient.prompt(prompt)
+        return chatClient.prompt()
                 .user(question)
                 .advisors(advisor -> advisor.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .stream()
